@@ -1,5 +1,5 @@
-{-# LANGUAGE LambdaCase         #-}
-{-# LANGUAGE OverloadedStrings  #-}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Update.Nix.FetchGit
   ( updatesFromFile
@@ -12,8 +12,8 @@ import           Data.Generics.Uniplate.Data
 import           Data.Text                    (pack)
 import           Nix.Expr
 import           Update.Nix.FetchGit.Prefetch
-import           Update.Nix.FetchGit.Utils
 import           Update.Nix.FetchGit.Types
+import           Update.Nix.FetchGit.Utils
 import           Update.Nix.FetchGit.Warning
 import           Update.Span
 
@@ -24,12 +24,16 @@ import           Update.Span
 -- | Given the contents of a Nix file, returns the SpanUpdates
 -- all the parts of the file we want to update.
 updatesFromFile :: FilePath -> IO (Either Warning [SpanUpdate])
-updatesFromFile f = runExceptT $ do
-  expr <- ExceptT $ ourParseNixFile f
-  treeWithArgs <- hoistEither $ exprToFetchTree expr
-  treeWithLatest <- ExceptT $
-    sequenceA <$> mapConcurrently getFetchGitLatestInfo treeWithArgs
-  pure (fetchTreeToSpanUpdates treeWithLatest)
+updatesFromFile filename = do
+  t <- T.readFile filename
+  case parseNixTextLoc t of
+    Failure parseError -> pure $ Left (CouldNotParseInput (_errDoc parseError))
+    Success expr -> case exprToFetchTree expr of
+      Left scanError -> pure (Left scanError)
+      Right treeWithArgs ->
+        sequenceA <$> mapConcurrently getFetchGitLatestInfo treeWithArgs >>= \case
+          Left getLatestInfoError -> pure $ Left getLatestInfoError
+          Right treeWithLatest -> pure $ pure $ fetchTreeToSpanUpdates treeWithLatest
 
 --------------------------------------------------------------------------------
 -- Extracting information about fetches from the AST
